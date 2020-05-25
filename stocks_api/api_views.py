@@ -5,6 +5,11 @@ from .models import Stocks
 import bs4 as bs
 import glob
 import os
+import pandas as pd
+from alpha_vantage.timeseries import TimeSeries
+from alpha_vantage.techindicators import TechIndicators
+import time
+from .serializers import StocksSerializer
 
 
 class StocksViewSet(viewsets.ViewSet):
@@ -12,21 +17,34 @@ class StocksViewSet(viewsets.ViewSet):
 
     def list(self, request):
         """
-        Load Data From https://www.magicformulainvesting.com/
+        Load Data From https://www.magicformulainvesting.com/ and saving to Database
         :param request:
-        :return:
+        :return: json
         """
-        result = []
         current_path = os.path.abspath(os.path.dirname(__file__))
         mfi_templates = os.path.join(current_path, "../stocks_api/mfi_templates")
         os.chdir(mfi_templates)
-        stock_instances = []
         # files = glob.glob('*.html')
         files = ['1.html', '2.html', '3.html', '4.html', '5.html', '6.html', '7.html', '8.html', '9.html', '10.html',
                  '11.html', '12.html', '13.html']
-        print(files)
+        result, stock_instances = self.load_data(files, mfi_templates)
+
+        if len(stock_instances) > 0:
+            Stocks.objects.bulk_create(stock_instances)
+        return Response(result)
+
+    @staticmethod
+    def load_data(files, path):
+        """
+        Scrap data from html files
+        :param files: list of strings
+        :param path: relative path to templates for scrap
+        :return: dictionary, instances (for bulk create)
+        """
+        json = []
+        instances = []
         for file in files:
-            f = open(os.path.join(mfi_templates, file), "r")
+            f = open(os.path.join(path, file), "r")
             soup = bs.BeautifulSoup(f.read(), 'lxml')
             h1s = soup.find_all('h1')
             stock_range = h1s[1]
@@ -46,13 +64,31 @@ class StocksViewSet(viewsets.ViewSet):
                     'etoro_link': 'www.etoro.com/markets/' + tds[1].string.strip() + '/chart',
                 }
 
-                if data not in result:
+                if data not in json:
                     if not Stocks.objects.filter(symbol=data.get('symbol')).exists():
-                        stock_instances.append(Stocks(company_name=data.get('company_name'),
-                                                      symbol=data.get('symbol'),
-                                                      etoro_link=data.get('etoro_link')))
-                    result.append(data)
-        if len(stock_instances) > 0:
-            Stocks.objects.bulk_create(stock_instances)
-        return Response(result)
+                        instances.append(Stocks(company_name=data.get('company_name'),
+                                                symbol=data.get('symbol'),
+                                                etoro_link=data.get('etoro_link')))
+                    json.append(data)
+        return json, instances
 
+
+class StockHistory(viewsets.ViewSet):
+    permission_classes = [IsAuthenticated, IsAdminUser]
+
+    def list(self, request):
+        """
+        Load Data From https://www.alphavantage.co/ and saving to Database
+        :param request:
+        :return:
+        """
+        result = []
+        # api_keys = ['44GNCB5WPC55EERS', '1UOV5PHVK5K49QYS', '4V7E9U7J09JFR0SB', '7H32FTP7OP61FATO', '7RE7REQLUXM0RAH1',
+        #             '9RN7A9SVJOY6OSJZ', 'FYOFKJO0ED94X9WB', 'PGSQR6KMR0V0YQDF', 'KBTBIQKOYE6IGROQ', 'LNDIK0V9C04EJM7S']
+        # api_key = 'OS85RFN2U37I7KT9'  # gmail
+        api_key = '1UOV5PHVK5K49QYS'
+        symbols = Stocks.objects.all().values_list('symbol', flat=True)[:4]
+        for symbol in symbols:
+            print(symbol)
+            StocksSerializer.get_rsi(symbol, api_key)
+        return Response(result)
