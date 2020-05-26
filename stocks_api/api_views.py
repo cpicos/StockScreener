@@ -1,7 +1,7 @@
 from rest_framework.permissions import IsAuthenticated, IsAdminUser
 from rest_framework import viewsets
 from rest_framework.response import Response
-from .models import Stocks
+from .models import Stocks, StocksInfo
 import bs4 as bs
 import glob
 import os
@@ -15,7 +15,7 @@ from .serializers import StocksSerializer
 class StocksViewSet(viewsets.ViewSet):
     permission_classes = [IsAuthenticated, IsAdminUser]
 
-    def list(self, request):
+    def create(self, request):
         """
         Load Data From https://www.magicformulainvesting.com/ and saving to Database
         :param request:
@@ -82,13 +82,45 @@ class StockHistory(viewsets.ViewSet):
         :param request:
         :return:
         """
-        result = []
         # api_keys = ['44GNCB5WPC55EERS', '1UOV5PHVK5K49QYS', '4V7E9U7J09JFR0SB', '7H32FTP7OP61FATO', '7RE7REQLUXM0RAH1',
         #             '9RN7A9SVJOY6OSJZ', 'FYOFKJO0ED94X9WB', 'PGSQR6KMR0V0YQDF', 'KBTBIQKOYE6IGROQ', 'LNDIK0V9C04EJM7S']
         # api_key = 'OS85RFN2U37I7KT9'  # gmail
-        api_key = '1UOV5PHVK5K49QYS'
-        symbols = Stocks.objects.all().values_list('symbol', flat=True)[:4]
-        for symbol in symbols:
-            print(symbol)
-            StocksSerializer.get_rsi(symbol, api_key)
+        # api_keys = ['7H32FTP7OP61FATO']
+        instances = []
+        api_key = request.GET.get('api_key')
+
+        request_counter = 0
+        stocks = Stocks.objects.all()
+        for stock in stocks:
+            try:
+                print(stock.symbol, api_key)
+                ti = TechIndicators(key=api_key, output_format='json')
+                data_ti, meta_data_ti = ti.get_rsi(symbol=stock.symbol, interval='30min', time_period=14,
+                                                   series_type='close')
+                rsi_prev = None
+                dict_items = data_ti.items()
+                sorted_items = sorted(dict_items)
+                last_refreshed = meta_data_ti.get('3: Last Refreshed')
+
+                for key, value in sorted_items:
+                    rsi_current = value.get('RSI')
+                    if not StocksInfo.objects.filter(stock=stock, date_time=key, rsi_current=rsi_current).exists():
+                        instances.append(StocksInfo(stock=stock, date_time=key,
+                                                    rsi_current=rsi_current,
+                                                    rsi_prev=rsi_prev,
+                                                    last_refreshed=last_refreshed))
+                    rsi_prev = rsi_current
+                request_counter += 1
+
+                if request_counter % 5 == 0:
+                    print('Waiting 60 seconds')
+                    if len(instances) > 0:
+                        StocksInfo.objects.bulk_create(instances)
+                    instances = []
+                    time.sleep(60)
+
+            except ValueError as err:
+                print(err)
+
+        result = {'data': 'Results Processed go to --> '}
         return Response(result)
