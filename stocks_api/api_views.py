@@ -3,13 +3,43 @@ from rest_framework import viewsets
 from rest_framework.response import Response
 from .models import Stocks, StocksInfo
 import bs4 as bs
-import glob
 import os
-import pandas as pd
-from alpha_vantage.timeseries import TimeSeries
 from alpha_vantage.techindicators import TechIndicators
 import time
-from .serializers import StocksSerializer
+import smtplib
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
+
+EMAIL_HOST = 'in-v3.mailjet.com'
+EMAIL_PORT = 2525
+EMAIL_USE_TSL = True
+EMAIL_HOST_USER = 'ffd3f6d9255e6c983b27c4b494533772'  # sanlygroup
+EMAIL_HOST_PASSWORD = 'fb05356a370b1579c856085123b50834'
+
+
+def send_simple_email():
+    try:
+        to_address = 'picos.rodriguez.christian@gmail.com'
+        subject = 'TEST'
+        message = 'HERE GOES ADVICE'
+        from_address = 'SanlyGroup<sanlygroup@gmail.com>'
+
+        server = smtplib.SMTP(EMAIL_HOST, EMAIL_PORT)
+        server.starttls()
+        server.login(EMAIL_HOST_USER, EMAIL_HOST_PASSWORD)
+
+        msg = MIMEMultipart()
+
+        msg['From'] = from_address
+        msg['To'] = to_address
+        msg['Subject'] = subject
+        msg.attach(MIMEText(message, 'plain'))
+        server.sendmail(from_address, to_address, msg.as_string())
+        server.quit()
+        print('sent')
+        return 0
+    except Exception as err:
+        return 1
 
 
 class StocksViewSet(viewsets.ViewSet):
@@ -82,45 +112,53 @@ class StockHistory(viewsets.ViewSet):
         :param request:
         :return:
         """
-        # api_keys = ['44GNCB5WPC55EERS', '1UOV5PHVK5K49QYS', '4V7E9U7J09JFR0SB', '7H32FTP7OP61FATO', '7RE7REQLUXM0RAH1',
-        #             '9RN7A9SVJOY6OSJZ', 'FYOFKJO0ED94X9WB', 'PGSQR6KMR0V0YQDF', 'KBTBIQKOYE6IGROQ', 'LNDIK0V9C04EJM7S']
+        api_keys = ['44GNCB5WPC55EERS', '1UOV5PHVK5K49QYS', '4V7E9U7J09JFR0SB', '7H32FTP7OP61FATO', '7RE7REQLUXM0RAH1',
+                    '9RN7A9SVJOY6OSJZ', 'FYOFKJO0ED94X9WB', 'PGSQR6KMR0V0YQDF',
+                    '44GNCB5WPC55EERS', '1UOV5PHVK5K49QYS', '4V7E9U7J09JFR0SB', '7H32FTP7OP61FATO', '7RE7REQLUXM0RAH1',
+                    '9RN7A9SVJOY6OSJZ', 'FYOFKJO0ED94X9WB', 'PGSQR6KMR0V0YQDF',
+                    ]
         # api_key = 'OS85RFN2U37I7KT9'  # gmail
-        # api_keys = ['7H32FTP7OP61FATO']
+        # api_keys = ['KBTBIQKOYE6IGROQ', 'LNDIK0V9C04EJM7S']
         instances = []
-        api_key = request.GET.get('api_key')
+        # api_key = request.GET.get('api_key')
 
         request_counter = 0
-        stocks = Stocks.objects.all()
-        for stock in stocks:
-            try:
-                print(stock.symbol, api_key)
-                ti = TechIndicators(key=api_key, output_format='json')
-                data_ti, meta_data_ti = ti.get_rsi(symbol=stock.symbol, interval='30min', time_period=14,
-                                                   series_type='close')
-                rsi_prev = None
-                dict_items = data_ti.items()
-                sorted_items = sorted(dict_items)
-                last_refreshed = meta_data_ti.get('3: Last Refreshed')
+        for api_key in api_keys:
+            stocks = Stocks.objects.all()
+            for stock in stocks:
+                try:
+                    print(stock.symbol, api_key)
+                    ti = TechIndicators(key=api_key, output_format='json')
+                    data_ti, meta_data_ti = ti.get_rsi(symbol=stock.symbol, interval='30min', time_period=14,
+                                                       series_type='close')
+                    rsi_prev = None
+                    dict_items = data_ti.items()
+                    sorted_items = sorted(dict_items)
+                    last_refreshed = meta_data_ti.get('3: Last Refreshed')
 
-                for key, value in sorted_items:
-                    rsi_current = value.get('RSI')
-                    if not StocksInfo.objects.filter(stock=stock, date_time=key, rsi_current=rsi_current).exists():
-                        instances.append(StocksInfo(stock=stock, date_time=key,
-                                                    rsi_current=rsi_current,
-                                                    rsi_prev=rsi_prev,
-                                                    last_refreshed=last_refreshed))
-                    rsi_prev = rsi_current
-                request_counter += 1
+                    for key, value in sorted_items:
+                        rsi_current = value.get('RSI')
+                        if not StocksInfo.objects.filter(stock=stock, date_time=key, rsi_current=rsi_current).exists():
+                            instances.append(StocksInfo(stock=stock, date_time=key,
+                                                        rsi_current=rsi_current,
+                                                        rsi_prev=rsi_prev,
+                                                        last_refreshed=last_refreshed))
+                        rsi_prev = rsi_current
+                    request_counter += 1
 
-                if request_counter % 5 == 0:
-                    print('Waiting 60 seconds')
-                    if len(instances) > 0:
-                        StocksInfo.objects.bulk_create(instances)
-                    instances = []
-                    time.sleep(60)
+                    if request_counter % 5 == 0:
+                        print('Waiting 60 seconds')
+                        if len(instances) > 0:
+                            StocksInfo.objects.bulk_create(instances)
+                        instances = []
+                        # HERE MAKE QUERY AND SEND EMAIL WITH ADVICE
+                        send_simple_email()
+                        time.sleep(60)
+                        break
 
-            except ValueError as err:
-                print(err)
+                except ValueError as err:
+                    print(err)
+            break
 
         result = {'data': 'Results Processed go to --> '}
         return Response(result)
