@@ -1,10 +1,11 @@
 from rest_framework.permissions import IsAuthenticated, IsAdminUser
 from rest_framework import viewsets
 from rest_framework.response import Response
-from .models import Stocks, StocksInfo
+from .models import Stocks, StocksRsi, StocksPrices
 import bs4 as bs
 import os
 from alpha_vantage.techindicators import TechIndicators
+from alpha_vantage.timeseries import TimeSeries
 import time
 import smtplib
 from email.mime.multipart import MIMEMultipart
@@ -103,7 +104,7 @@ class StocksViewSet(viewsets.ViewSet):
         return json, instances
 
 
-class StockHistory(viewsets.ViewSet):
+class StocksHistoryRsi(viewsets.ViewSet):
     permission_classes = [IsAuthenticated, IsAdminUser]
 
     def list(self, request):
@@ -129,7 +130,7 @@ class StockHistory(viewsets.ViewSet):
                 try:
                     print(stock.symbol, api_key)
                     ti = TechIndicators(key=api_key, output_format='json')
-                    data_ti, meta_data_ti = ti.get_rsi(symbol=stock.symbol, interval='30min', time_period=14,
+                    data_ti, meta_data_ti = ti.get_rsi(symbol=stock.symbol, interval='daily', time_period=14,
                                                        series_type='close')
                     rsi_prev = None
                     dict_items = data_ti.items()
@@ -138,8 +139,8 @@ class StockHistory(viewsets.ViewSet):
 
                     for key, value in sorted_items:
                         rsi_current = value.get('RSI')
-                        if not StocksInfo.objects.filter(stock=stock, date_time=key, rsi_current=rsi_current).exists():
-                            instances.append(StocksInfo(stock=stock, date_time=key,
+                        if not StocksRsi.objects.filter(stock=stock, date_time=key, rsi_current=rsi_current).exists():
+                            instances.append(StocksRsi(stock=stock, date_time=key,
                                                         rsi_current=rsi_current,
                                                         rsi_prev=rsi_prev,
                                                         last_refreshed=last_refreshed))
@@ -149,12 +150,12 @@ class StockHistory(viewsets.ViewSet):
                     if request_counter % 5 == 0:
                         print('Waiting 60 seconds')
                         if len(instances) > 0:
-                            StocksInfo.objects.bulk_create(instances)
+                            StocksRsi.objects.bulk_create(instances)
                         instances = []
                         # HERE MAKE QUERY AND SEND EMAIL WITH ADVICE
-                        send_simple_email()
+                        # send_simple_email()
                         time.sleep(60)
-                        break
+                        # break
 
                 except ValueError as err:
                     print(err)
@@ -162,3 +163,63 @@ class StockHistory(viewsets.ViewSet):
 
         result = {'data': 'Results Processed go to --> '}
         return Response(result)
+
+
+class StocksHistoryPrice(viewsets.ViewSet):
+    permission_classes = [IsAuthenticated, IsAdminUser]
+
+    def list(self, request):
+        """
+        Load History Prices Data From https://www.alphavantage.co/ and saving to Database
+        :param request:
+        :return:
+        """
+        api_keys = ['44GNCB5WPC55EERS', '1UOV5PHVK5K49QYS', '4V7E9U7J09JFR0SB', '7H32FTP7OP61FATO', '7RE7REQLUXM0RAH1',
+                    '9RN7A9SVJOY6OSJZ', 'FYOFKJO0ED94X9WB', 'PGSQR6KMR0V0YQDF',
+                    '44GNCB5WPC55EERS', '1UOV5PHVK5K49QYS', '4V7E9U7J09JFR0SB', '7H32FTP7OP61FATO', '7RE7REQLUXM0RAH1',
+                    '9RN7A9SVJOY6OSJZ', 'FYOFKJO0ED94X9WB', 'PGSQR6KMR0V0YQDF',
+                    ]
+        instances = []
+        request_counter = 0
+        for api_key in api_keys:
+            stocks = Stocks.objects.all()
+            for stock in stocks:
+                try:
+                    print(stock.symbol, api_key)
+                    ts = TimeSeries(key=api_key, output_format='json')
+                    data_ts, meta_data_ts = ts.get_daily_adjusted(symbol=stock.symbol, outputsize='full')
+                    dict_items = data_ts.items()
+                    sorted_items = sorted(dict_items)
+
+                    for key, value in sorted_items:
+                        open_price = value.get('1. open')
+                        high_price = value.get('2. high')
+                        low_price = value.get('3. low')
+                        close_price = value.get('4. close')
+                        adj_close_price = value.get('5. adjusted close')
+                        volume = value.get('6. volume')
+                        if not StocksPrices.objects.filter(stock=stock, date_time=key, open=open_price, high=high_price,
+                                                           low=low_price, close=close_price, adj_close=adj_close_price,
+                                                           volume=volume).exists():
+                            instances.append(StocksPrices(stock=stock, date_time=key, open=open_price, high=high_price,
+                                                          low=low_price, close=close_price, adj_close=adj_close_price,
+                                                          volume=volume))
+                    request_counter += 1
+
+                    if request_counter % 5 == 0:
+                        print('Waiting 60 seconds')
+                        if len(instances) > 0:
+                            StocksPrices.objects.bulk_create(instances)
+                        instances = []
+                        # HERE MAKE QUERY AND SEND EMAIL WITH ADVICE
+                        # send_simple_email()
+                        time.sleep(60)
+                        # break
+                    # break
+                except ValueError as err:
+                    print(err)
+            break
+
+        result = {'data': 'Results Processed go to --> '}
+        return Response(result)
+
