@@ -43,3 +43,16 @@ class StocksPrices(models.Model):
     def __str__(self):
         return '% % % %', self.stock.symbol, str(self.date_time), str(self.close)
 
+
+class StocksSMA200(models.Model):
+    stock = models.ForeignKey(Stocks, on_delete=models.CASCADE)
+    date_time = models.CharField(max_length=50)
+    value = models.DecimalField(max_digits=10, decimal_places=4, null=True)
+    last_refreshed = models.CharField(max_length=50, blank=True, null=True)
+
+    class Meta:
+        db_table = 'stocks_sma200'
+
+    def __str__(self):
+        return '% % % %', self.stock.symbol, str(self.date_time), str(self.value)
+

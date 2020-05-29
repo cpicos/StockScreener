@@ -1,7 +1,7 @@
 from rest_framework.permissions import IsAuthenticated, IsAdminUser
 from rest_framework import viewsets
 from rest_framework.response import Response
-from .models import Stocks, StocksRsi, StocksPrices
+from .models import Stocks, StocksRsi, StocksPrices, StocksSMA200
 import bs4 as bs
 import os
 from alpha_vantage.techindicators import TechIndicators
@@ -216,6 +216,62 @@ class StocksHistoryPrice(viewsets.ViewSet):
                         time.sleep(60)
                         # break
                     # break
+                except ValueError as err:
+                    print(err)
+            break
+
+        result = {'data': 'Results Processed go to --> '}
+        return Response(result)
+
+
+class StocksHistorySMA200(viewsets.ViewSet):
+    permission_classes = [IsAuthenticated, IsAdminUser]
+
+    def list(self, request):
+        """
+        Load SMA200 From https://www.alphavantage.co/ and saving to Database
+        :param request:
+        :return:
+        """
+        api_keys = ['44GNCB5WPC55EERS', '1UOV5PHVK5K49QYS', '4V7E9U7J09JFR0SB', '7H32FTP7OP61FATO', '7RE7REQLUXM0RAH1',
+                    '9RN7A9SVJOY6OSJZ', 'FYOFKJO0ED94X9WB', 'PGSQR6KMR0V0YQDF',
+                    '44GNCB5WPC55EERS', '1UOV5PHVK5K49QYS', '4V7E9U7J09JFR0SB', '7H32FTP7OP61FATO', '7RE7REQLUXM0RAH1',
+                    '9RN7A9SVJOY6OSJZ', 'FYOFKJO0ED94X9WB', 'PGSQR6KMR0V0YQDF',
+                    ]
+        instances = []
+
+        request_counter = 0
+        for api_key in api_keys:
+            stocks = Stocks.objects.all()
+            for stock in stocks:
+                try:
+                    print(stock.symbol, api_key)
+                    ti = TechIndicators(key=api_key, output_format='json')
+
+                    data_ti, meta_data_ti = ti.get_sma(symbol=stock.symbol, interval='daily', time_period=200,
+                                                       series_type='close')
+                    dict_items = data_ti.items()
+                    sorted_items = sorted(dict_items)
+                    last_refreshed = meta_data_ti.get('3: Last Refreshed')
+
+                    for key, value in sorted_items:
+                        sma = value.get('SMA')
+                        if not StocksSMA200.objects.filter(stock=stock, date_time=key, value=sma).exists():
+                            instances.append(StocksSMA200(stock=stock, date_time=key, value=sma,
+                                                          last_refreshed=last_refreshed))
+
+                    request_counter += 1
+
+                    if request_counter % 5 == 0:
+                        print('Waiting 60 seconds')
+                        if len(instances) > 0:
+                            StocksSMA200.objects.bulk_create(instances)
+                        instances = []
+                        # HERE MAKE QUERY AND SEND EMAIL WITH ADVICE
+                        # send_simple_email()
+                        time.sleep(60)
+                        # break
+
                 except ValueError as err:
                     print(err)
             break
