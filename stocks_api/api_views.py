@@ -187,7 +187,7 @@ class StocksHistoryPrice(viewsets.ViewSet):
                 try:
                     print(stock.symbol, api_key)
                     ts = TimeSeries(key=api_key, output_format='json')
-                    data_ts, meta_data_ts = ts.get_daily_adjusted(symbol=stock.symbol, outputsize='full')
+                    data_ts, meta_data_ts = ts.get_weekly_adjusted(symbol=stock.symbol)
                     dict_items = data_ts.items()
                     sorted_items = sorted(dict_items)
 
